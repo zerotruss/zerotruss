@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1" # weekly, so new advisories are caught even when nothing changed
+  workflow_dispatch:
+
+# Nothing in this file needs more than read access unless a job says so.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests and generated code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the locked dependencies (hashes required, wheels only)
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r requirements.txt -r requirements-dev.txt
+      - name: Run the tests
+        run: python -m pytest -q
+      - name: Check that the committed gRPC code matches the proto file
+        run: |
+          PYTHON=python scripts/gen_proto.sh
+          git diff --exit-code zerotruss/ext_mcp_pb2.py
+
+  dependencies:
+    name: Dependency checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the locked dependencies (hashes required, wheels only)
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r requirements.txt -r requirements-dev.txt
+      - name: Every locked version is at least 14 days old and not yanked
+        run: python scripts/check_lock.py
+      - name: Known vulnerabilities in every lock file
+        run: |
+          for lock in requirements.txt requirements-dev.txt requirements-sbom.txt; do
+            echo "== $lock"
+            python -m pip_audit -r "$lock" --disable-pip --no-deps
+          done
+
+  secrets:
+    name: Secret scan (TruffleHog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: Check out the code with its whole history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install a pinned TruffleHog release and verify its checksum
+        run: |
+          version=3.99.7
+          curl -fsSL -o trufflehog.tar.gz "https://github.com/trufflesecurity/trufflehog/releases/download/v${version}/trufflehog_${version}_linux_amd64.tar.gz"
+          echo "bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef  trufflehog.tar.gz" | sha256sum --check --strict
+          tar -xzf trufflehog.tar.gz trufflehog
+      - name: Scan the whole git history for secrets
+        run: ./trufflehog git "file://${GITHUB_WORKSPACE}" --results=verified,unknown --fail --no-update
+
+  build:
+    name: Build and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # needed to sign the attestations
+      attestations: write
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the locked dependencies (hashes required, wheels only)
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r requirements.txt -r requirements-dev.txt
+      - name: Build the wheel and the source package
+        run: python -m build --no-isolation --outdir dist .
+      - name: Install the SBOM tool in its own environment (locked, hashes required)
+        run: |
+          python -m venv sbom-tool
+          sbom-tool/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-sbom.txt
+      - name: Make a runtime-only environment (locked runtime dependencies plus the built wheel)
+        run: |
+          python -m venv --without-pip runtime-env
+          sbom-tool/bin/python -m pip --python runtime-env/bin/python install --require-hashes --only-binary=:all: -r requirements.txt
+          sbom-tool/bin/python -m pip --python runtime-env/bin/python install --no-deps dist/*.whl
+      - name: Write the CycloneDX SBOM
+        run: |
+          sbom-tool/bin/cyclonedx-py environment runtime-env --mc-type application --sv 1.6 --of JSON --validate -o sbom.cdx.json
+          runtime-env/bin/python scripts/finish_sbom.py sbom.cdx.json
+      - name: Validate the finished SBOM against the CycloneDX 1.6 schema
+        run: |
+          sbom-tool/bin/python - <<'EOF'
+          from cyclonedx.schema import SchemaVersion
+          from cyclonedx.validation.json import JsonStrictValidator
+          error = JsonStrictValidator(SchemaVersion.V1_6).validate_str(open("sbom.cdx.json").read())
+          raise SystemExit(f"the SBOM is not valid: {error}" if error else 0)
+          EOF
+      - name: Keep the build and the SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-and-sbom
+          path: |
+            dist/*
+            sbom.cdx.json
+          if-no-files-found: error
+      # Signed attestations only work on public repositories (on free plans), so they switch on
+      # once the repository is public, and only for the main branch.
+      - name: Signed provenance for the build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Signed attestation of the SBOM
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/*.whl
+          sbom-path: sbom.cdx.json

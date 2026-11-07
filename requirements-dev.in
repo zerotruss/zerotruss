@@ -1,0 +1,15 @@
+# Development tools, kept apart from the runtime dependencies and pinned the same way.
+# The constraint line keeps these tools from changing any runtime version.
+-c requirements.txt
+grpcio-tools==1.84.1
+pytest==9.1.1
+pip-audit==2.10.1
+pip-tools==7.6.2
+
+# Packages these tools pull in, held back to the newest version that is at least 14 days old
+# (the resolver would otherwise pick versions that are only days old). Re-check with
+# scripts/check_lock.py whenever a lock file is regenerated.
+filelock==4.2.4
+msgpack==1.2.3
+pip==26.2.2
+platformdirs==4.13.5

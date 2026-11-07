@@ -1,0 +1,10 @@
+# The tool that writes the CycloneDX SBOM. It has its own lock so the main development environment
+# stays small, and it is only installed by the SBOM job. Same rules as the other lock files: exact
+# pins, hashes, wheels only, and every version at least 14 days old (scripts/check_lock.py checks it).
+cyclonedx-bom==7.5.0
+
+# Packages it pulls in, held back to the newest version that is at least 14 days old.
+jsonpointer==3.4
+python-dateutil==3.0.0
+tzdata==2026.5
+py-serializable==2.1.0

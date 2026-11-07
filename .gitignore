@@ -1,0 +1,53 @@
+# Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build output and generated reports
+dist/
+build/
+*.egg-info/
+*.cdx.json
+
+# Local runtime files: the audit log, the gateway config (it holds the session key) and your boundary file
+chain.jsonl
+config.yaml
+boundary.json
+
+# Local project state notes; only README.md is kept in git
+*.md
+!README.md
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+*.kdbx
+secrets/
+credentials*.json
+service-account*.json
+.npmrc
+.netrc
+
+# Node (npx-launched MCP servers)
+node_modules/
+
+# Logs and local data
+*.log
+*.sqlite
+*.db
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

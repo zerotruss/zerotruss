@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # The pinned Actions in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14 # same rule as the lock files: nothing newer than 14 days
+  # The Python requirements files (the .in files and their hash-locked .txt files)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 5
