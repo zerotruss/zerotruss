@@ -4,14 +4,17 @@ import sys
 import uuid
 from concurrent import futures
 from datetime import datetime, timezone
+from pathlib import Path
 
 import grpc
 from google.protobuf import struct_pb2
 from google.protobuf.json_format import MessageToDict
 
 from zerotruss import ext_mcp_pb2 as pb
-from zerotruss.boundary import check, load_boundary_file, summary
+from zerotruss.boundary import (
+    BOUNDARY_FILE, PUBLIC_KEY_FILE, SIGNATURE_FILE, check, load_signed_boundary_file, summary)
 from zerotruss.chain import ChainWriter, arguments_hash, sha256_hex
+from zerotruss.signing import fingerprint
 
 SERVICE_NAME = "agentgateway.dev.ext_mcp.ExtMcp"
 
@@ -171,14 +174,15 @@ def build_server(hooks, address):
 
 def main():
     port = sys.argv[1] if len(sys.argv) > 1 else "9001"
-    # Load the boundary first: a missing or invalid file stops the service, so it never allows everything
+    # Load the boundary first: a missing, unsigned or invalid one stops the service, so it never allows everything
     try:
-        boundary = load_boundary_file("boundary.json")
+        boundary = load_signed_boundary_file(BOUNDARY_FILE, SIGNATURE_FILE, PUBLIC_KEY_FILE)
+        key_id = fingerprint(Path(PUBLIC_KEY_FILE).read_bytes())
         writer = ChainWriter("chain.jsonl")  # opened now: a bad path stops the service here too
     except (ValueError, OSError) as error:
         print(f"cannot start: {error}", file=sys.stderr)
         sys.exit(1)
-    print(f"boundary loaded ({summary(boundary)})", flush=True)
+    print(f"boundary loaded, signature verified with key {key_id} ({summary(boundary)})", flush=True)
     server, port = build_server(Hooks(writer, boundary), f"127.0.0.1:{port}")
     server.start()
     print(f"ExtMCP service listening on 127.0.0.1:{port}", flush=True)

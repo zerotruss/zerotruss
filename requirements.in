@@ -3,3 +3,4 @@
 # requirements.txt is generated from this file with hashes (see README.md); never edit that by hand.
 grpcio==1.84.1
 protobuf==7.36.2
+cryptography==50.0.2  # verifies the boundary's signature

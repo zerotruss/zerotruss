@@ -10,10 +10,12 @@ build/
 *.egg-info/
 *.cdx.json
 
-# Local runtime files: the audit log, the gateway config (it holds the session key) and your boundary file
+# Local runtime files: the audit log, the gateway config (it holds the session key), your boundary file and its signature and public key
 chain.jsonl
 config.yaml
 boundary.json
+boundary.json.sig
+boundary.pub
 
 # Local project state notes; only README.md is kept in git
 *.md

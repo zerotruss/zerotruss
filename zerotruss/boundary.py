@@ -3,10 +3,17 @@ import json
 import re
 from datetime import timezone, datetime
 
+from zerotruss.signing import verify
+
 # Argument names that hold file paths. Every tool on the allowed list uses only these.
 PATH_KEYS = ("path", "paths", "source", "destination")
 
 FIELDS = ("allowed_tools", "allowed_folders", "expires_at")
+
+# The boundary, its signature and the public key that checks it (all in the folder the service runs from)
+BOUNDARY_FILE = "boundary.json"
+SIGNATURE_FILE = "boundary.json.sig"
+PUBLIC_KEY_FILE = "boundary.pub"
 
 # RFC 3339 with a timezone, for example 2030-01-01T00:00:00Z. A date alone is not accepted.
 TIME_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})")
@@ -93,13 +100,35 @@ def load_boundary(text):
     }
 
 
-# Read the boundary from a file; an error here should stop the service from starting
+# Read an UNSIGNED boundary from a file: for tests and examples only, the service uses load_signed_boundary_file
 def load_boundary_file(path):
     try:
         with open(path, encoding="utf-8") as file:
             text = file.read()
     except (OSError, UnicodeDecodeError) as error:
         raise ValueError(f"cannot read {path}: {error}") from None
+    return load_boundary(text)
+
+
+# The bytes of a file, or ValueError saying which file cannot be read
+def read_bytes(path, what):
+    try:
+        with open(path, "rb") as file:
+            return file.read()
+    except OSError as error:
+        raise ValueError(f"cannot read the {what} {path}: {error}") from None
+
+
+# Read the boundary only after its signature checks out against the public key; ValueError if not
+def load_signed_boundary_file(path, signature_path, public_key_path):
+    data = read_bytes(path, "boundary file")
+    signature = read_bytes(signature_path, "signature file").decode("utf-8", errors="replace")
+    public_pem = read_bytes(public_key_path, "public key file")
+    verify(public_pem, signature, data)  # an unsigned or changed file is never even parsed
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("boundary file is not valid: it is not UTF-8 text") from None
     return load_boundary(text)
 
 

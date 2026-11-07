@@ -12,6 +12,8 @@ Needs Python 3.12.
 
     scripts/setup.sh                       # virtual environment and locked dependencies
     cp boundary.example.json boundary.json # then edit the folder and the expiry date
+    .venv/bin/python -m zerotruss.sign init  # once: makes the signing key (kept in the macOS Keychain)
+    .venv/bin/python -m zerotruss.sign sign  # every time boundary.json changes
 
 Dependencies are pinned to exact versions with hashes (`requirements.txt`,
 `requirements-dev.txt`) and installed wheels-only. See `requirements.in` for the rules.
@@ -20,12 +22,27 @@ Dependencies are pinned to exact versions with hashes (`requirements.txt`,
 
 `boundary.json` has three fields: `allowed_tools` (exact tool names), `allowed_folders`
 (absolute paths) and `expires_at` (a date and time with a timezone, for example
-`2030-01-01T00:00:00Z`). Anything not allowed is denied, and the service refuses to start if the
-file is missing or invalid. Your own `boundary.json` is not committed.
+`2030-01-01T00:00:00Z`). Anything not allowed is denied. Your own `boundary.json`, its signature
+and your public key are not committed.
+
+### Signing
+
+The service only starts with a boundary that carries a valid Ed25519 signature, so anything that
+can edit `boundary.json` cannot widen it without the private key.
+
+- `zerotruss.sign init` makes the key. The private half stays in the macOS Keychain (it is never
+  written to a file or printed); the public half is written to `boundary.pub`, which is not secret.
+- `zerotruss.sign sign` signs the exact bytes of `boundary.json` and writes `boundary.json.sig`.
+  It refuses a boundary the service would refuse. Sign again after every edit, then restart.
+- The service reads `boundary.json`, `boundary.json.sig` and `boundary.pub` from the folder it runs
+  in, checks the signature first, and only then parses the boundary. A missing file, a changed
+  boundary or a signature from another key stops it from starting, before the log is opened.
+- Keep `boundary.pub` and the service out of the agent's reach (for example with a sandbox), or the
+  agent could swap in its own key.
 
 ## Run
 
-    .venv/bin/python -m zerotruss.server   # listens on 127.0.0.1:9001, reads boundary.json
+    .venv/bin/python -m zerotruss.server   # listens on 127.0.0.1:9001, needs the signed boundary
     .venv/bin/python -m zerotruss.verify chain.jsonl    # check the audit log
 
 Point agentgateway at the service. The `metadata` block is required: it is how the gateway hands

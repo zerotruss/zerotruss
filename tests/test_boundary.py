@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from zerotruss.boundary import check, load_boundary, load_boundary_file, path_arguments, split_absolute, summary
+from zerotruss.boundary import (
+    check, load_boundary, load_boundary_file, load_signed_boundary_file, path_arguments, split_absolute, summary)
+from zerotruss.signing import new_private_key, public_key_pem, sign
 
 
 # ----- split_absolute -----
@@ -373,3 +375,103 @@ def test_deny_reasons_never_contain_the_path():
     for tool, arguments in calls:
         reason = run_check(tool, arguments)
         assert reason is not None and secret not in reason, reason
+
+
+# ----- load_signed_boundary_file -----
+
+GOOD = file_text(["/data/test_dir"], "2030-01-01T00:00:00Z").encode()
+
+
+# Write boundary.json, boundary.json.sig and boundary.pub into a folder; returns the three paths
+def write_signed(folder, content=GOOD, private=None):
+    private = private or new_private_key()
+    boundary = folder / "boundary.json"
+    boundary.write_bytes(content)
+    signature = folder / "boundary.json.sig"
+    signature.write_text(sign(private, content) + "\n")
+    public = folder / "boundary.pub"
+    public.write_bytes(public_key_pem(private))
+    return boundary, signature, public
+
+
+def test_a_correctly_signed_boundary_loads(tmp_path):
+    boundary = load_signed_boundary_file(*write_signed(tmp_path))
+    assert boundary == load_boundary(GOOD.decode())
+
+
+def test_a_missing_file_stops_the_load(tmp_path):
+    for index, what in enumerate(["boundary file", "signature file", "public key file"]):
+        folder = tmp_path / str(index)
+        folder.mkdir()
+        paths = write_signed(folder)
+        paths[index].unlink()
+        with pytest.raises(ValueError, match=f"cannot read the {what}"):
+            load_signed_boundary_file(*paths)
+
+
+def test_a_boundary_changed_after_signing_is_refused(tmp_path):
+    boundary, signature, public = write_signed(tmp_path)
+    boundary.write_bytes(GOOD.replace(b"read_text_file", b"write_file"))
+    with pytest.raises(ValueError, match="does not match"):
+        load_signed_boundary_file(boundary, signature, public)
+
+
+def test_a_longer_expiry_written_after_signing_is_refused(tmp_path):
+    boundary, signature, public = write_signed(tmp_path)
+    boundary.write_bytes(GOOD.replace(b"2030-01-01", b"2099-01-01"))
+    with pytest.raises(ValueError, match="does not match"):
+        load_signed_boundary_file(boundary, signature, public)
+
+
+def test_a_signature_from_another_key_is_refused(tmp_path):
+    boundary, signature, public = write_signed(tmp_path)
+    public.write_bytes(public_key_pem(new_private_key()))
+    with pytest.raises(ValueError, match="does not match"):
+        load_signed_boundary_file(boundary, signature, public)
+
+
+def test_the_signature_of_a_different_boundary_is_refused(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    private = new_private_key()
+    write_signed(first, GOOD, private)
+    boundary, _, public = write_signed(second, GOOD.replace(b"/data/test_dir", b"/etc"), private)
+    with pytest.raises(ValueError, match="does not match"):
+        load_signed_boundary_file(boundary, first / "boundary.json.sig", public)
+
+
+def test_an_unsigned_file_is_never_parsed(tmp_path):
+    boundary, signature, public = write_signed(tmp_path)
+    boundary.write_bytes(b"this is not even json")
+    with pytest.raises(ValueError) as error:
+        load_signed_boundary_file(boundary, signature, public)
+    assert "does not match" in str(error.value) and "not valid" not in str(error.value)
+
+
+def test_a_signed_file_with_bad_content_is_still_refused(tmp_path):
+    bad = b'{"allowed_tools": [], "allowed_folders": [], "expires_at": "2030-01-01T00:00:00Z", "extra": 1}'
+    with pytest.raises(ValueError, match="unknown field"):
+        load_signed_boundary_file(*write_signed(tmp_path, bad))
+
+
+def test_signed_bytes_that_are_not_text_are_refused(tmp_path):
+    with pytest.raises(ValueError, match="not UTF-8"):
+        load_signed_boundary_file(*write_signed(tmp_path, b"\xff\xfe\x00"))
+
+
+def test_an_empty_or_garbage_signature_or_key_file_is_refused(tmp_path):
+    for index, (name, content) in enumerate([("signature", ""), ("signature", "@@@@"), ("key", ""), ("key", "garbage")]):
+        folder = tmp_path / str(index)
+        folder.mkdir()
+        boundary, signature, public = write_signed(folder)
+        (signature if name == "signature" else public).write_text(content)
+        with pytest.raises(ValueError):
+            load_signed_boundary_file(boundary, signature, public)
+
+
+def test_the_expiry_still_applies_to_a_signed_boundary(tmp_path):
+    expired = file_text(["/data/test_dir"], "2000-01-01T00:00:00Z").encode()
+    boundary = load_signed_boundary_file(*write_signed(tmp_path, expired))
+    assert check(boundary, "read_text_file", {"path": "/data/test_dir/a"}, TODAY) == "boundary expired"
