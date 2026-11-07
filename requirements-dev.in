@@ -6,6 +6,9 @@ pytest==9.1.1
 pip-audit==2.10.1
 pip-tools==7.6.2
 keyring==25.7.0  # the signing command keeps the private key in the macOS Keychain
+# keyring needs these two on Linux only, so a lock made on a Mac leaves them out and the Linux pipeline cannot install
+SecretStorage==3.5.0
+jeepney==0.9.0
 
 # Packages these tools pull in, held back to the newest version that is at least 14 days old
 # (the resolver would otherwise pick versions that are only days old). Re-check with
