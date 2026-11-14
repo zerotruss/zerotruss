@@ -4,7 +4,7 @@
 cyclonedx-bom==7.5.0
 
 # Packages it pulls in, held back to the newest version that is at least 14 days old.
-jsonpointer==3.4
+jsonpointer==3.6
 python-dateutil==3.0.0
 tzdata==2026.5
 py-serializable==2.1.0

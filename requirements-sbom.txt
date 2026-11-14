@@ -4,8 +4,6 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file=requirements-sbom.txt --pip-args='--only-binary=:all:' --strip-extras requirements-sbom.in
 #
---only-binary :all:
-
 arrow==1.4.0 \
     --hash=sha256:749f0769958ebdc79c173ff0b0670d59051a535fa26e8eba02953dc19eb43205
     # via isoduration
@@ -82,8 +80,9 @@ idna==3.20 \
 isoduration==20.11.0 \
     --hash=sha256:b2904c2a4228c3d44f409c8ae8e2370eb21a26f7ac2ec5446df141dde3452042
     # via jsonschema
-jsonpointer==3.4 \
-    --hash=sha256:136e2e3273fd82a1502274f56ec172f331b6a1703d86a1824d503af4d9a96142
+jsonpointer==3.6 \
+    --hash=sha256:82e839a3ba3a9e2b54394fda8b3d276c2459d80408d06ef9a6fbc369d7544ffc \
+    --hash=sha256:a45c858f8a9e171f6b3790ed9446c9382782f6c4cb4589176813c5a553f4cfcd
     # via
     #   -r requirements-sbom.in
     #   jsonschema
