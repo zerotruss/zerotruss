@@ -13,7 +13,7 @@ jeepney==0.9.0
 # Packages these tools pull in, held back to the newest version that is at least 14 days old
 # (the resolver would otherwise pick versions that are only days old). Re-check with
 # scripts/check_lock.py whenever a lock file is regenerated.
-filelock==4.2.4
+filelock==4.2.5
 msgpack==1.2.3
 pip==26.2.2
 platformdirs==4.13.5
